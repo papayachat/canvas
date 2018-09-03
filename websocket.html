@@ -12,26 +12,33 @@
     var stats = new Stats();
     stats.showPanel(0); // 0: fps, 1: ms, 2: mb, 3+: custom
     document.body.appendChild(stats.dom);
-    var imageWidth = 400;
-    var imageHeight = 720;
+    var canvasWidth = 1440;
+    var canvasHeight = 720;
+    var bufferWidth = 50;
     var canvas = document.getElementById('canvas');
-    var buffer = document.createElement('canvas');
-    canvas.width = imageWidth;
-    canvas.height = imageHeight;
+    var canvasContext = canvas.getContext('2d');
+    var bufferCanvas = document.createElement('canvas'),
+    	bufferContext = bufferCanvas.getContext('2d');
+    canvas.width = canvasWidth;
+    canvas.height = canvasHeight;
     var ws = new WebSocket("ws://127.0.0.1:5678/");
-    ws.binaryType = "arraybuffer";
-    var imageData = new ImageData(imageWidth, imageHeight);
+    var imageData = new ImageData(bufferWidth, canvasHeight);
     imageData.data.fill(0xFF);
+    var databuffer = new Uint8ClampedArray(0);
+    ws.binaryType = "arraybuffer";
     var msgcount = 0;
     ws.onmessage = function(event) {
-        //if(msgcount>500) return;
+    	if(msgcount==1){
+    		//console.log(new Uint8ClampedArray(event.data))
+
+    	}
+        //if(msgcount>10) return;
         var arraydata = new Uint8ClampedArray(event.data);
-        // if(msgcount==0)
-        // 	console.log(arraydata)
-        //console.time("loop"+msgcount);
-        for (var y = 0; y < imageHeight; y++) {
-            for (var row = imageWidth - 1; row > 0; row--) {
-                var pos = (y * imageWidth + row - 1) * 4;
+
+		//console.log(databuffer);
+        for (var y = 0; y < canvasHeight; y++) {
+            for (var row = bufferWidth - 1; row > 0; row--) {
+                var pos = (y * bufferWidth + row - 1) * 4;
                 //if(imageData.data[pos+3] != 0){
                 imageData.data[pos + 4] = imageData.data[pos]; //next pixel
                 imageData.data[pos + 4 + 1] = imageData.data[pos + 1];
@@ -40,7 +47,7 @@
                 //}
             }
             //for(var x = 0; x < arraydata.length; x += 3) {
-            var pos = (y * imageWidth) * 4; // position in buffer based on x and y
+            var pos = (y * bufferWidth) * 4; // position in buffer based on x and y
             // if(msgcount==10)
             // console.log({x:msgcount,y:y,canvas_pos:pos,dataindex:y*4})
             imageData.data[pos] = arraydata[y * 3]; // some R value [0, 255]
@@ -49,31 +56,12 @@
             imageData.data[pos + 3] = 255; // set alpha channel
             //}
         }
-        //console.timeEnd("loop"+msgcount)
-        //console.log(imageData);
-        // for (var i = 0; i < arraydata.length; i += 4) {
-        // 	var pos = (i * imageWidth + msgcount) * 4;
-        //        if(i===4){
-        //        	console.log(pos);
-        //        }
-        //        imageData.data[pos  ] = arraydata[i];           // some R value [0, 255]
-        //        imageData.data[pos+1] = arraydata[i+1];           // some G value
-        //        imageData.data[pos+2] = arraydata[i+2];           // some B value
-        //        imageData.data[pos+3] = 255;           // set alpha channel
-        // }
+
         msgcount++;
-        //console.log('msg receive' + msgcount)
-        //if(msgcount==imageWidth)
-        //	msgcount = 0;	
-        //console.log(msgcount)
-        //message.appendChild(content);
-        //messages.appendChild(message);
     };
-    //document.body.appendChild(messages);
-    //setInterval(function(){console.log('msg receive:' + msgcount)}, 1000)
 
     //          var img = new Image();
-    var CanvasXSize = 800;
+    var CanvasXSize = 1200;
     var CanvasYSize = 720;
 
     // var dx = 0.75;
@@ -82,38 +70,55 @@
     var x = 0;
     var clearX;
     var clearY;
-    var ctx;
 
     init = function() {
-        imgW = 1;
-        imgH = 450;
-        if (imgW > CanvasXSize) { x = CanvasXSize - imgW; } // image larger than canvas
-        if (imgW > CanvasXSize) { clearX = imgW; } // image larger than canvas
-        else { clearX = CanvasXSize; }
-        if (imgH > CanvasYSize) { clearY = imgH; } // image larger than canvas
-        else { clearY = CanvasYSize; }
         //Get Canvas Element
-        ctx = document.getElementById('canvas').getContext('2d');
-        ctx.putImageData(imageData, 0, 0);
-        buffer.getContext('2d').drawImage(canvas, 0, 0);
-        console.log(buffer)
-        buffer.width = canvas.width;
-        buffer.height = canvas.height;
-        //Set Refresh Rate
-        //return setInterval(draw, speed);
+
+        canvasContext.putImageData(imageData, 0, 0);
+        bufferContext.drawImage(canvas, 0, 0);
+        bufferCanvas.width = canvas.width;
+        bufferCanvas.height = canvas.height;
         return requestAnimationFrame(draw);
     }
 
     function draw() {
+    	//if(msgcount==0) return;
         stats.begin();
-        //console.log(imageData);	    
-        ctx.putImageData(imageData, 0, 0);
+        //console.log(imageData);	 
+        canvasContext.clearRect(0, 0, canvasWidth, canvasHeight);   
+
+        //ctx.putImageData(imageData, 0, 0);
+
+        canvasContext.putImageData(imageData, 0, 0, 0, 0, msgcount, canvasHeight);
+        canvasContext.drawImage(bufferCanvas, msgcount, 0);
+        //console.log('draw:'+msgcount);
+
+        //store canvas to buffer
+        bufferContext.drawImage(canvas, 0, 0, canvasWidth, canvasHeight);
+
+
+        msgcount = 0;
+        databuffer = new Uint8ClampedArray(0);
 
         stats.end();
         //amount to move
         //x++;
         requestAnimationFrame(draw);
     }
+
+	function concatenate(resultConstructor, ...arrays) {
+		let totalLength = 0;
+		for (let arr of arrays) {
+			totalLength += arr.length;
+		}
+		let result = new resultConstructor(totalLength);
+		let offset = 0;
+		for (let arr of arrays) {
+			result.set(arr, offset);
+			offset += arr.length;
+		}
+		return result;
+	}
 
     init();
     </script>
