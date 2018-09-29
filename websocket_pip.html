@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>WebSocket demo</title>
+    <script src="vue.js"></script>
+    <script src="stats.min.js"></script>
+</head>
+
+<body>
+    <div id="app">
+        <canvas id="pip" style="position: relative; float: right;  height: 320px; width: 600px; z-index: 100"></canvas>
+        <canvas id="canvas" width="1200" height="640" style="position: absolute;"></canvas>
+    </div>
+    <script>
+    var stats = new Stats();
+    stats.showPanel(0); // 0: fps, 1: ms, 2: mb, 3+: custom
+    document.body.appendChild(stats.dom);
+    var scale = 2; //pip scale size
+    var canvasWidth = 1200,
+        canvasHeight = 640,
+        pipWidth = canvasWidth,
+        pipHeight = canvasHeight / scale; // 640/4=160
+    var bufferWidth = 30;
+    var canvas = document.getElementById('canvas'),
+        pipCanvas = document.getElementById('pip');
+    var canvasContext = canvas.getContext('2d'),
+        pipCanvasContext = pipCanvas.getContext('2d');
+    var bufferCanvas = document.createElement('canvas'),
+        bufferContext = bufferCanvas.getContext('2d');
+    var pipBufferCanvas = document.createElement('canvas'),
+        pipBufferContext = pipBufferCanvas.getContext('2d');
+    var channelbias = 1; //channel
+    canvas.width = canvasWidth;
+    canvas.height = canvasHeight;
+    pipCanvas.width = pipWidth;
+    pipCanvas.height = pipHeight;
+    var ws = new WebSocket("ws://127.0.0.1:5678/");
+    var mainImageData = new ImageData(bufferWidth, canvasHeight);
+    var pipImageData = new ImageData(pipWidth, pipHeight);
+    mainImageData.data.fill(0xFF);
+    pipImageData.data.fill(0xFF);
+    //var databuffer = new Uint8ClampedArray(0);
+    ws.binaryType = "arraybuffer";
+    var mainChannelCount = 0,
+        pipChannelCount = 0,
+        logcnt = 0;
+    ws.onmessage = function(event) {
+        //if(mainChannelCount>10) return;
+        var arraydata = new Uint8ClampedArray(event.data);
+        if (logcnt++ == 0) {
+            console.log(event.data)
+        }
+
+        if (arraydata[0] === 0) { //main channel
+            imageDataCombine(bufferWidth, canvasHeight, mainImageData, arraydata.slice(channelbias));
+            // for (var y = 0; y < canvasHeight; y++) {
+            //     for (var row = bufferWidth - 1; row > 0; row--) {
+            //         var pos = (y * bufferWidth + row - 1) * 4;
+            //         //if(imageData.data[pos+3] != 0){
+            //         imageData.data[pos + 4 + 0] = imageData.data[pos + 0]; //next pixel
+            //         imageData.data[pos + 4 + 1] = imageData.data[pos + 1];
+            //         imageData.data[pos + 4 + 2] = imageData.data[pos + 2];
+            //         imageData.data[pos + 4 + 3] = 255;
+            //         //}
+            //     }
+            //     //for(var x = 0; x < arraydata.length; x += 3) {
+            //     var pos = (y * bufferWidth) * 4; // position in buffer based on x and y
+            //     // if(mainChannelCount==10)
+            //     // console.log({x:mainChannelCount,y:y,canvas_pos:pos,dataindex:y*4})
+            //     imageData.data[pos + 0] = arraydata[y * 3 + 0 + channelbias]; // some R value [0, 255]
+            //     imageData.data[pos + 1] = arraydata[y * 3 + 1 + channelbias]; // some G value
+            //     imageData.data[pos + 2] = arraydata[y * 3 + 2 + channelbias]; // some B value
+            //     imageData.data[pos + 3] = 255; // set alpha channel
+            //     //}
+            // }
+            mainChannelCount++;
+        } else if (arraydata[0] === 1) { //pip channel
+            var shrunken = shrink(arraydata.slice(channelbias), scale);
+            // if(pipChannelCount<5){
+            //     console.log(shrunken)
+            // }
+            imageDataCombine(pipWidth, pipHeight, pipImageData, shrunken);
+            // if(pipChannelCount<10){
+            //     console.log(pipImageData.data)
+            // }
+            // for (var y = 0; y < pipHeight; y++) {
+            //     for (var row = pipWidth - 1; row > 0; row--) {
+            //         var pos = (y * pipWidth + row - 1) * 4;
+            //         //if(imageData.data[pos+3] != 0){
+            //         pipImageData.data[pos + 4 + 0] = pipImageData.data[pos + 0]; //next pixel
+            //         pipImageData.data[pos + 4 + 1] = pipImageData.data[pos + 1];
+            //         pipImageData.data[pos + 4 + 2] = pipImageData.data[pos + 2];
+            //         pipImageData.data[pos + 4 + 3] = 255;
+            //         //}
+            //     }
+            //     //for(var x = 0; x < arraydata.length; x += 3) {
+            //     var pos = (y * pipWidth) * 4; // position in buffer based on x and y
+            //     // if(mainChannelCount==10)
+            //     // console.log({x:mainChannelCount,y:y,canvas_pos:pos,dataindex:y*4})
+            //     pipImageData.data[pos + 0] = arraydata[y * 3 + 0]; // some R value [0, 255]
+            //     pipImageData.data[pos + 1] = arraydata[y * 3 + 1]; // some G value
+            //     pipImageData.data[pos + 2] = arraydata[y * 3 + 2]; // some B value
+            //     pipImageData.data[pos + 3] = 255; // set alpha channel
+            //     //}
+            // }
+            pipChannelCount++;
+        }
+    };
+
+    init = function() {
+        //Get Canvas Element
+
+        canvasContext.putImageData(mainImageData, 0, 0);
+        // pipCanvasContext.putImageData(pipImageData, 0, 0);
+        bufferContext.drawImage(canvas, 0, 0);
+        bufferCanvas.width = canvas.width;
+        bufferCanvas.height = canvas.height;
+        // pipBufferCanvas.width = pipCanvas.width;
+        // pipBufferCanvas.height = pipCanvas.height;
+        return requestAnimationFrame(draw);
+    }
+
+    function draw() {
+
+        //if(mainChannelCount==0) return;
+        stats.begin();
+        //draw mainChannel
+        canvasContext.clearRect(0, 0, canvasWidth, canvasHeight);
+        canvasContext.putImageData(mainImageData, 0, 0, 0, 0, mainChannelCount, canvasHeight);
+        canvasContext.drawImage(bufferCanvas, mainChannelCount, 0);
+
+        //store canvas to buffer
+        bufferContext.drawImage(canvas, 0, 0, canvasWidth, canvasHeight);
+
+        //draw pipChannel
+        // pipCanvasContext.clearRect(0, 0, pipWidth, pipHeight);
+        // pipCanvasContext.putImageData(pipImageData, 0, 0, 0, 0, pipChannelCount, pipHeight);
+        // pipCanvasContext.drawImage(pipBufferCanvas, pipChannelCount, 0)
+        //store pipcanvas to buffer
+        // pipBufferContext.drawImage(pipCanvas, 0, 0, pipWidth, pipHeight);
+        // pipCanvasContext.putImageData(pipImageData, 0, 0, 0, 0, pipChannelCount, pipHeight);
+        // pipCanvasContext.drawImage(pipBufferCanvas, pipChannelCount, 0);
+
+        // pipBufferContext.drawImage(pipCanvas, 0, 0, pipWidth, pipHeight);
+
+        mainChannelCount = 0;
+        pipChannelCount = 0;
+        //databuffer = new Uint8ClampedArray(0);
+
+        stats.end();
+        //amount to move
+        //x++;
+        requestAnimationFrame(draw);
+    }
+
+    function imageDataCombine(width, height, imageData, arrayData) {
+        for (var y = 0; y < height; y++) {
+            for (var row = width - 1; row > 0; row--) {
+                var pos = (y * width + row - 1) * 4;
+                imageData.data[pos + 4 + 0] = imageData.data[pos + 0]; //next pixel
+                imageData.data[pos + 4 + 1] = imageData.data[pos + 1];
+                imageData.data[pos + 4 + 2] = imageData.data[pos + 2];
+                imageData.data[pos + 4 + 3] = 255;
+            }
+            var pos = (y * width) * 4; // position in buffer based on x and y
+            imageData.data[pos + 0] = arrayData[y * 3 + 0]; // some R value [0, 255]
+            imageData.data[pos + 1] = arrayData[y * 3 + 1]; // some G value
+            imageData.data[pos + 2] = arrayData[y * 3 + 2]; // some B value
+            imageData.data[pos + 3] = 255; // set alpha channel
+            //}
+        }
+    }
+
+    //shrink array in vertical(Y)
+    //pixellength: RGB=3;RGBA=4
+    function shrink(arraydata, scale, pixellength = 3) {
+        let result = new Uint32Array(arraydata.length / scale);
+        arraydata.reduce(function(res, cur, index) {
+            pos = Math.floor(index / (scale * pixellength));
+            remainder = index % (scale * pixellength)
+            bias = remainder % pixellength;
+            result[pos * pixellength + bias] += cur;
+        }, result);
+        avg = result.map(function(e) {
+            return e / scale
+        });
+        return avg;
+    }
+
+    init();
+    </script>
+</body>
+
+</html>

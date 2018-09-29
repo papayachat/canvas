@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebSocket demo</title>
+    <script src="vue.js"></script>
+    <script src="stats.min.js"></script>
+</head>
+<body>
+    <div id="app">
+        <canvas id="canvas" width="1440" height="720"></canvas>
+    </div>
+    <script>
+    var stats = new Stats();
+    stats.showPanel(0); // 0: fps, 1: ms, 2: mb, 3+: custom
+    document.body.appendChild(stats.dom);
+    var log=0;
+
+    var app = new Vue({
+        el: '#canvas',
+        data: {
+            msgCount:0,
+            canvasWidth: 1440,
+            canvasHeight: 720,
+            bufferWidth: 10,
+            webSocketServer: "ws://127.0.0.1:5678/",
+            imageData: {},
+            canvasContext: undefined,
+            bufferCanvas: undefined,
+            bufferContext: undefined
+        },
+        created: function(){
+            //console.log(this.imageData);
+        },
+        methods: {
+            draw: function(){
+                stats.begin();
+                 // if(log<10)
+                 //     console.log(this.imageData)
+                this.canvasContext.clearRect(0, 0, this.canvasWidth, this.canvasHeight);   
+                this.canvasContext.putImageData(this.imageData, 0, 0, 0, 0, this.msgCount, this.canvasHeight);
+                this.canvasContext.drawImage(this.bufferCanvas, this.msgCount, 0);
+
+                this.bufferContext.drawImage(this.$el, 0, 0, this.canvasWidth, this.canvasHeight);
+
+                this.msgCount = 0;
+
+                stats.end();
+
+                requestAnimationFrame(this.draw);
+            }
+        },
+        mounted: function(){
+            this.imageData = new ImageData(this.bufferWidth, this.canvasHeight);
+            // if(log==0)
+            //     console.log(this.imageData)
+            this.imageData.data.fill(0xFF);
+            this.canvasContext = this.$el.getContext('2d');
+            this.bufferCanvas = document.createElement('canvas');
+            this.bufferContext = this.bufferCanvas.getContext('2d');
+            var ws = new WebSocket(this.webSocketServer);
+            ws.binaryType = "arraybuffer";
+            ws.onmessage = (event) => {
+                var arraydata = new Uint8ClampedArray(event.data);
+                for (var y = 0; y < this.canvasHeight; y++) {
+                    for (var row = this.bufferWidth - 1; row > 0; row--) {
+                        var pos = (y * this.bufferWidth + row - 1) * 4;
+                        this.imageData.data[pos + 4 + 0] = this.imageData.data[pos + 0]; //next pixel
+                        this.imageData.data[pos + 4 + 1] = this.imageData.data[pos + 1];
+                        this.imageData.data[pos + 4 + 2] = this.imageData.data[pos + 2];
+                        this.imageData.data[pos + 4 + 3] = 255;
+                    }
+                    var pos = (y * this.bufferWidth) * 4; // position in buffer based on x and y
+                    this.imageData.data[pos + 0] = arraydata[y * 3 + 0]; // some R value [0, 255]
+                    this.imageData.data[pos + 1] = arraydata[y * 3 + 1]; // some G value
+                    this.imageData.data[pos + 2] = arraydata[y * 3 + 2]; // some B value
+                    this.imageData.data[pos + 3] = 255; // set alpha channel
+                }
+                this.msgCount++;
+                //log++;
+            };
+
+            this.canvasContext.putImageData(this.imageData, 0, 0);
+            this.bufferContext.drawImage(this.$el, 0, 0);
+            this.bufferCanvas.width = this.canvasWidth;
+            this.bufferCanvas.height = this.canvasHeight;
+            return requestAnimationFrame(this.draw);
+        }
+        
+    })    
+ //    var stats = new Stats();
+ //    stats.showPanel(0); // 0: fps, 1: ms, 2: mb, 3+: custom
+ //    document.body.appendChild(stats.dom);
+ //    var canvasWidth = 1440;
+ //    var canvasHeight = 720;
+ //    var bufferWidth = 50;
+ //    var canvas = document.getElementById('canvas');
+ //    var canvasContext = canvas.getContext('2d');
+ //    var bufferCanvas = document.createElement('canvas'),
+ //    	bufferContext = bufferCanvas.getContext('2d');
+ //    canvas.width = canvasWidth;
+ //    canvas.height = canvasHeight;
+ //    var ws = new WebSocket("ws://127.0.0.1:5678/");
+ //    var imageData = new ImageData(bufferWidth, canvasHeight);
+ //    imageData.data.fill(0xFF);
+ //    //var databuffer = new Uint8ClampedArray(0);
+ //    ws.binaryType = "arraybuffer";
+ //    var msgcount = 0;
+ //    ws.onmessage = function(event) {
+ //    	if(msgcount==1){
+ //    		//console.log(new Uint8ClampedArray(event.data))
+
+ //    	}
+ //        //if(msgcount>10) return;
+ //        var arraydata = new Uint8ClampedArray(event.data);
+
+	// 	//console.log(databuffer);
+ //        for (var y = 0; y < canvasHeight; y++) {
+ //            for (var row = bufferWidth - 1; row > 0; row--) {
+ //                var pos = (y * bufferWidth + row - 1) * 4;
+ //                //if(imageData.data[pos+3] != 0){
+ //                imageData.data[pos + 4] = imageData.data[pos]; //next pixel
+ //                imageData.data[pos + 4 + 1] = imageData.data[pos + 1];
+ //                imageData.data[pos + 4 + 2] = imageData.data[pos + 2];
+ //                imageData.data[pos + 4 + 3] = 255;
+ //                //}
+ //            }
+ //            //for(var x = 0; x < arraydata.length; x += 3) {
+ //            var pos = (y * bufferWidth) * 4; // position in buffer based on x and y
+ //            // if(msgcount==10)
+ //            // console.log({x:msgcount,y:y,canvas_pos:pos,dataindex:y*4})
+ //            imageData.data[pos] = arraydata[y * 3]; // some R value [0, 255]
+ //            imageData.data[pos + 1] = arraydata[y * 3 + 1]; // some G value
+ //            imageData.data[pos + 2] = arraydata[y * 3 + 2]; // some B value
+ //            imageData.data[pos + 3] = 255; // set alpha channel
+ //            //}
+ //        }
+
+ //        msgcount++;
+ //    };
+
+ //    //          var img = new Image();
+ //    var CanvasXSize = 1200;
+ //    var CanvasYSize = 720;
+
+ //    // var dx = 0.75;
+ //    var imgW;
+ //    var imgH;
+ //    var x = 0;
+ //    var clearX;
+ //    var clearY;
+
+ //    init = function() {
+ //        //Get Canvas Element
+
+ //        canvasContext.putImageData(imageData, 0, 0);
+ //        bufferContext.drawImage(canvas, 0, 0);
+ //        bufferCanvas.width = canvas.width;
+ //        bufferCanvas.height = canvas.height;
+ //        return requestAnimationFrame(draw);
+ //    }
+
+ //    function draw() {
+ //    	//if(msgcount==0) return;
+ //        stats.begin();
+ //        //console.log(imageData);	 
+ //        canvasContext.clearRect(0, 0, canvasWidth, canvasHeight);   
+
+ //        //ctx.putImageData(imageData, 0, 0);
+
+ //        canvasContext.putImageData(imageData, 0, 0, 0, 0, msgcount, canvasHeight);
+ //        canvasContext.drawImage(bufferCanvas, msgcount, 0);
+ //        //console.log('draw:'+msgcount);
+
+ //        //store canvas to buffer
+ //        bufferContext.drawImage(canvas, 0, 0, canvasWidth, canvasHeight);
+
+
+ //        msgcount = 0;
+ //        //databuffer = new Uint8ClampedArray(0);
+
+ //        stats.end();
+ //        //amount to move
+ //        //x++;
+ //        requestAnimationFrame(draw);
+ //    }
+
+	// // function concatenate(resultConstructor, ...arrays) {
+	// // 	let totalLength = 0;
+	// // 	for (let arr of arrays) {
+	// // 		totalLength += arr.length;
+	// // 	}
+	// // 	let result = new resultConstructor(totalLength);
+	// // 	let offset = 0;
+	// // 	for (let arr of arrays) {
+	// // 		result.set(arr, offset);
+	// // 		offset += arr.length;
+	// // 	}
+	// // 	return result;
+	// // }
+
+ //    init();
+    </script>
+</body>
+
+</html>
