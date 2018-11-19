@@ -1,204 +1,202 @@
 <!DOCTYPE html>
 <html>
+
 <head>
     <title>WebSocket demo</title>
     <script src="vue.js"></script>
     <script src="stats.min.js"></script>
+    <style type="text/css">
+        * { margin:0; padding:0; } /* to remove the top and left whitespace */
+        html, body { width:100%; height:100%; } /* just to be sure these are full screen*/
+    </style>
 </head>
+
 <body>
-    <div id="app">
-        <canvas id="canvas" width="1440" height="720"></canvas>
+    <div id="app" style="position: relative;">
+        <canvas id="canvas" width="800" height="512" style="position: absolute; top: 0; left: 0"></canvas>
+        <canvas id="mask-canvas" width="800" height="512" @click="box" style="position: absolute; top: 0; left: 0"></canvas>
+    </div>
+    <div>
+        <button onclick="stop()">Stop</button>
     </div>
     <script>
     var stats = new Stats();
-    stats.showPanel(0); // 0: fps, 1: ms, 2: mb, 3+: custom
+    var xPanel = stats.addPanel(new Stats.Panel('column/s', '#ff8', '#221'));
+    stats.showPanel(3); // 0: fps, 1: ms, 2: mb, 3+: custom
     document.body.appendChild(stats.dom);
-    var log=0;
 
     var app = new Vue({
-        el: '#canvas',
+        el: '#app',
         data: {
-            msgCount:0,
-            canvasWidth: 1440,
-            canvasHeight: 720,
-            bufferWidth: 10,
+            running: true,
+            msgCount: 0,
+            canvasWidth: 800,
+            canvasHeight: 512,
+            boxWidth: 120,
+            boxHeight: 90,
+            bufferWidth: 20,
             webSocketServer: "ws://127.0.0.1:5678/",
+            channelbias: 1,
             imageData: {},
+            canvas: undefined,
+            maskCanvas: undefined,
             canvasContext: undefined,
+            maskCanvasContext: undefined,
             bufferCanvas: undefined,
-            bufferContext: undefined
+            bufferContext: undefined,
+            queue: [],
+            messageReceived: 0,
+            boxes: [],
+            logcnt: 0
         },
-        created: function(){
+        created: function() {
             //console.log(this.imageData);
         },
         methods: {
-            draw: function(){
-                stats.begin();
-                 // if(log<10)
-                 //     console.log(this.imageData)
-                this.canvasContext.clearRect(0, 0, this.canvasWidth, this.canvasHeight);   
-                this.canvasContext.putImageData(this.imageData, 0, 0, 0, 0, this.msgCount, this.canvasHeight);
-                this.canvasContext.drawImage(this.bufferCanvas, this.msgCount, 0);
+            draw: function() {
+                if (this.running) {
+                    stats.begin();
 
-                this.bufferContext.drawImage(this.$el, 0, 0, this.canvasWidth, this.canvasHeight);
+                    var time = performance.now() / 1000;
+                    var avg_column_per_second = this.messageReceived / time || 0;
 
-                this.msgCount = 0;
+                    var column_per_frame = Math.ceil(avg_column_per_second / 60);
+                    var datacnt = 0;
 
-                stats.end();
+                    for (var i = column_per_frame; i > 0; i--) {
+                        var data = this.queue.shift();
+                        if (data) {
+                            this.imageDataCombine(this.bufferWidth, this.canvasHeight, this.imageData, data, 1);
+                            datacnt++;
+                            this.boxes.forEach((item,index,object)=>{
+                                item[0]++;
+                                if(item[0]>this.canvasWidth){
+                                    object.splice(index, 1)
+                                }
+                            })
+                        }
+                    }
+
+
+                    //draw mainChannel
+                    // canvasContext.clearRect(0, 0, canvasWidth, canvasHeight);
+                    this.canvasContext.putImageData(this.imageData, 0, 0);
+                    // console.log(mainChannelCount)
+                    //var drawWidth  = math.min(bufferWidth, mainChannelCount * batchSize);
+                    this.canvasContext.drawImage(this.bufferCanvas, datacnt, 0);
+
+                    //store canvas to buffer
+                    this.bufferContext.drawImage(this.canvas, 0, 0, this.canvasWidth, this.canvasHeight);
+
+
+                    this.maskCanvasContext.clearRect(0, 0, this.canvasWidth, this.canvasHeight);
+                    this.drawBoxes();
+
+                    stats.end();
+                    xPanel.update(avg_column_per_second, 400);
+                    //amount to move
+                    //x++;
+                }
 
                 requestAnimationFrame(this.draw);
+            },
+
+            imageDataCombine: function(width, height, imageData, arrayData) {
+                for (var y = 0; y < height; y++) {
+                    for (var row = width - 1; row > 0; row--) {
+                        var pos = (y * width + row - 1) * 4;
+                        imageData.data[pos + 4 + 0] = imageData.data[pos + 0]; //next pixel
+                        imageData.data[pos + 4 + 1] = imageData.data[pos + 1];
+                        imageData.data[pos + 4 + 2] = imageData.data[pos + 2];
+                        imageData.data[pos + 4 + 3] = 255;
+                    }
+                    var pos = (y * width) * 4; // position in buffer based on x and y
+                    imageData.data[pos + 0] = arrayData[y * 3 + 0]; // some R value [0, 255]
+                    imageData.data[pos + 1] = arrayData[y * 3 + 1]; // some G value
+                    imageData.data[pos + 2] = arrayData[y * 3 + 2]; // some B value
+                    imageData.data[pos + 3] = 255; // set alpha channel
+
+                }
+            },
+
+            box: function(event){
+                // this.running = false;
+                // console.log(event.clientX); // x coordinate
+                // console.log(event.clientY); // y coordinate
+                //this.maskCanvasContext.strokeRect(event.clientX - boxWidth/2, event.clientY - boxHeight/2, boxWidth, boxHeight);
+                this.boxes.push([event.clientX, event.clientY, this.boxWidth, this.boxHeight]);
+            },
+
+            drawBoxes: function(){
+                this.boxes.forEach((value)=>{
+                    // console.log(app)
+                    this.maskCanvasContext.strokeStyle = value[4];
+                    this.maskCanvasContext.strokeRect(value[0], value[1], value[2], value[3]);
+                });
             }
         },
-        mounted: function(){
+        mounted: function() {
             this.imageData = new ImageData(this.bufferWidth, this.canvasHeight);
             // if(log==0)
             //     console.log(this.imageData)
             this.imageData.data.fill(0xFF);
-            this.canvasContext = this.$el.getContext('2d');
+            this.canvas = document.getElementById('canvas');
+            this.maskCanvas = document.getElementById('mask-canvas');
+            this.canvasContext = this.canvas.getContext('2d');
+            this.maskCanvasContext = this.maskCanvas.getContext('2d');
             this.bufferCanvas = document.createElement('canvas');
             this.bufferContext = this.bufferCanvas.getContext('2d');
+            //this.maskCanvasContext.strokeStyle = 'blue';
+            this.maskCanvasContext.lineWidth = '2';
             var ws = new WebSocket(this.webSocketServer);
             ws.binaryType = "arraybuffer";
             ws.onmessage = (event) => {
-                var arraydata = new Uint8ClampedArray(event.data);
-                for (var y = 0; y < this.canvasHeight; y++) {
-                    for (var row = this.bufferWidth - 1; row > 0; row--) {
-                        var pos = (y * this.bufferWidth + row - 1) * 4;
-                        this.imageData.data[pos + 4 + 0] = this.imageData.data[pos + 0]; //next pixel
-                        this.imageData.data[pos + 4 + 1] = this.imageData.data[pos + 1];
-                        this.imageData.data[pos + 4 + 2] = this.imageData.data[pos + 2];
-                        this.imageData.data[pos + 4 + 3] = 255;
+                if(this.logcnt++==0)
+                    console.log(JSON.parse(event.data))
+                // var arraydata = new Uint8ClampedArray(event.data);
+                var eventData = JSON.parse(event.data);
+                if(eventData.MsgType == "ColumnData"){
+                    var i, j, temparray, chunk = this.canvasHeight * 3;
+                    for (i = 0, j = eventData.MsgContent.Rgbabyte.length; i < j; i += chunk) {
+                        temparray = eventData.MsgContent.Rgbabyte.slice(i, i + chunk);
+                        this.queue.push(temparray);
                     }
-                    var pos = (y * this.bufferWidth) * 4; // position in buffer based on x and y
-                    this.imageData.data[pos + 0] = arraydata[y * 3 + 0]; // some R value [0, 255]
-                    this.imageData.data[pos + 1] = arraydata[y * 3 + 1]; // some G value
-                    this.imageData.data[pos + 2] = arraydata[y * 3 + 2]; // some B value
-                    this.imageData.data[pos + 3] = 255; // set alpha channel
+                    this.messageReceived += eventData.MsgContent.Rgbabyte.length / (this.canvasHeight * 3)
                 }
-                this.msgCount++;
+                else if(eventData.MsgType == "AIMark"){
+                    eventData.MsgContent.ImgMarks.forEach(mark=>{
+                        this.boxes.push([mark.XMin, mark.YMin, mark.Width, mark.Height, mark.HexColor])
+                    })
+                }
+
+
+
+                // for (var y = 0; y < this.canvasHeight; y++) {
+                //     for (var row = this.bufferWidth - 1; row > 0; row--) {
+                //         var pos = (y * this.bufferWidth + row - 1) * 4;
+                //         this.imageData.data[pos + 4 + 0] = this.imageData.data[pos + 0]; //next pixel
+                //         this.imageData.data[pos + 4 + 1] = this.imageData.data[pos + 1];
+                //         this.imageData.data[pos + 4 + 2] = this.imageData.data[pos + 2];
+                //         this.imageData.data[pos + 4 + 3] = 255;
+                //     }
+                //     var pos = (y * this.bufferWidth) * 4; // position in buffer based on x and y
+                //     this.imageData.data[pos + 0] = arraydata[y * 3 + 0]; // some R value [0, 255]
+                //     this.imageData.data[pos + 1] = arraydata[y * 3 + 1]; // some G value
+                //     this.imageData.data[pos + 2] = arraydata[y * 3 + 2]; // some B value
+                //     this.imageData.data[pos + 3] = 255; // set alpha channel
+                // }
+                // this.msgCount++;
                 //log++;
             };
 
             this.canvasContext.putImageData(this.imageData, 0, 0);
-            this.bufferContext.drawImage(this.$el, 0, 0);
+            this.bufferContext.drawImage(this.canvas, 0, 0);
             this.bufferCanvas.width = this.canvasWidth;
             this.bufferCanvas.height = this.canvasHeight;
             return requestAnimationFrame(this.draw);
         }
-        
-    })    
- //    var stats = new Stats();
- //    stats.showPanel(0); // 0: fps, 1: ms, 2: mb, 3+: custom
- //    document.body.appendChild(stats.dom);
- //    var canvasWidth = 1440;
- //    var canvasHeight = 720;
- //    var bufferWidth = 50;
- //    var canvas = document.getElementById('canvas');
- //    var canvasContext = canvas.getContext('2d');
- //    var bufferCanvas = document.createElement('canvas'),
- //    	bufferContext = bufferCanvas.getContext('2d');
- //    canvas.width = canvasWidth;
- //    canvas.height = canvasHeight;
- //    var ws = new WebSocket("ws://127.0.0.1:5678/");
- //    var imageData = new ImageData(bufferWidth, canvasHeight);
- //    imageData.data.fill(0xFF);
- //    //var databuffer = new Uint8ClampedArray(0);
- //    ws.binaryType = "arraybuffer";
- //    var msgcount = 0;
- //    ws.onmessage = function(event) {
- //    	if(msgcount==1){
- //    		//console.log(new Uint8ClampedArray(event.data))
 
- //    	}
- //        //if(msgcount>10) return;
- //        var arraydata = new Uint8ClampedArray(event.data);
-
-	// 	//console.log(databuffer);
- //        for (var y = 0; y < canvasHeight; y++) {
- //            for (var row = bufferWidth - 1; row > 0; row--) {
- //                var pos = (y * bufferWidth + row - 1) * 4;
- //                //if(imageData.data[pos+3] != 0){
- //                imageData.data[pos + 4] = imageData.data[pos]; //next pixel
- //                imageData.data[pos + 4 + 1] = imageData.data[pos + 1];
- //                imageData.data[pos + 4 + 2] = imageData.data[pos + 2];
- //                imageData.data[pos + 4 + 3] = 255;
- //                //}
- //            }
- //            //for(var x = 0; x < arraydata.length; x += 3) {
- //            var pos = (y * bufferWidth) * 4; // position in buffer based on x and y
- //            // if(msgcount==10)
- //            // console.log({x:msgcount,y:y,canvas_pos:pos,dataindex:y*4})
- //            imageData.data[pos] = arraydata[y * 3]; // some R value [0, 255]
- //            imageData.data[pos + 1] = arraydata[y * 3 + 1]; // some G value
- //            imageData.data[pos + 2] = arraydata[y * 3 + 2]; // some B value
- //            imageData.data[pos + 3] = 255; // set alpha channel
- //            //}
- //        }
-
- //        msgcount++;
- //    };
-
- //    //          var img = new Image();
- //    var CanvasXSize = 1200;
- //    var CanvasYSize = 720;
-
- //    // var dx = 0.75;
- //    var imgW;
- //    var imgH;
- //    var x = 0;
- //    var clearX;
- //    var clearY;
-
- //    init = function() {
- //        //Get Canvas Element
-
- //        canvasContext.putImageData(imageData, 0, 0);
- //        bufferContext.drawImage(canvas, 0, 0);
- //        bufferCanvas.width = canvas.width;
- //        bufferCanvas.height = canvas.height;
- //        return requestAnimationFrame(draw);
- //    }
-
- //    function draw() {
- //    	//if(msgcount==0) return;
- //        stats.begin();
- //        //console.log(imageData);	 
- //        canvasContext.clearRect(0, 0, canvasWidth, canvasHeight);   
-
- //        //ctx.putImageData(imageData, 0, 0);
-
- //        canvasContext.putImageData(imageData, 0, 0, 0, 0, msgcount, canvasHeight);
- //        canvasContext.drawImage(bufferCanvas, msgcount, 0);
- //        //console.log('draw:'+msgcount);
-
- //        //store canvas to buffer
- //        bufferContext.drawImage(canvas, 0, 0, canvasWidth, canvasHeight);
-
-
- //        msgcount = 0;
- //        //databuffer = new Uint8ClampedArray(0);
-
- //        stats.end();
- //        //amount to move
- //        //x++;
- //        requestAnimationFrame(draw);
- //    }
-
-	// // function concatenate(resultConstructor, ...arrays) {
-	// // 	let totalLength = 0;
-	// // 	for (let arr of arrays) {
-	// // 		totalLength += arr.length;
-	// // 	}
-	// // 	let result = new resultConstructor(totalLength);
-	// // 	let offset = 0;
-	// // 	for (let arr of arrays) {
-	// // 		result.set(arr, offset);
-	// // 		offset += arr.length;
-	// // 	}
-	// // 	return result;
-	// // }
-
- //    init();
+    })
     </script>
 </body>
 
